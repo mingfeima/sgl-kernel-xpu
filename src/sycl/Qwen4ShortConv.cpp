@@ -230,17 +230,6 @@ void dispatch_bf16_or_float(at::ScalarType dtype, const char* name, F&& f) {
   }
 }
 
-template <typename F>
-void dispatch_index(at::ScalarType dtype, F&& f) {
-  if (dtype == at::kInt) {
-    f(int32_t{});
-  } else if (dtype == at::kLong) {
-    f(int64_t{});
-  } else {
-    TORCH_CHECK(false, "state_indices must be int32 or int64, got ", dtype);
-  }
-}
-
 }  // namespace
 
 namespace at::native::xpu {
@@ -390,17 +379,16 @@ SGL_KERNEL_EXPORT void qwen4_verify_conv(
   const auto inter_dtype = has_intermediate ? intermediate->scalar_type() : at::kBFloat16;
   dispatch_bf16_or_float(state.scalar_type(), "state", [&](auto state_tag) {
     using StateT = decltype(state_tag);
-    dispatch_index(state_indices.scalar_type(), [&](auto index_tag) {
-      using IdxT = decltype(index_tag);
+    AT_DISPATCH_INDEX_TYPES(state_indices.scalar_type(), "qwen4_verify_conv", [&] {
       dispatch_bf16_or_float(inter_dtype, "intermediate", [&](auto inter_tag) {
         using InterT = decltype(inter_tag);
-        VerifyConvKernel<StateT, IdxT, InterT> kernel{
+        VerifyConvKernel<StateT, index_t, InterT> kernel{
             {},
             reinterpret_cast<const bf16*>(x.data_ptr()),
             reinterpret_cast<const bf16*>(residual.data_ptr()),
             reinterpret_cast<const bf16*>(weight.data_ptr()),
             reinterpret_cast<const StateT*>(state.data_ptr()),
-            reinterpret_cast<const IdxT*>(state_indices.data_ptr()),
+            reinterpret_cast<const index_t*>(state_indices.data_ptr()),
             valid.data_ptr<bool>(),
             reinterpret_cast<bf16*>(output.data_ptr()),
             has_intermediate ? reinterpret_cast<InterT*>(intermediate->data_ptr()) : nullptr,
